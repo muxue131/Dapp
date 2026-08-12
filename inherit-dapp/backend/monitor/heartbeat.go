@@ -146,7 +146,7 @@ func NewKeeperBot(cfg *config.Config, database *db.Database) *KeeperBot {
 // Start begins the keeper bot
 func (kb *KeeperBot) Start() {
 	log.Println("Starting keeper bot...")
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(kb.config.HeartbeatCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -174,6 +174,6 @@ func (kb *KeeperBot) checkAndRenew() {
 	// Send reminder notifications to plan creators
 	log.Println("Keeper bot: checking for plans needing heartbeat renewal...")
 
-	// Placeholder: in production, this would query the chain
+	// Placeholder: in production, this would query the chain and notify creators
 	_ = ctx
 }

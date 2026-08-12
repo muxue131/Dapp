@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"cosmossdk.io/store"
 	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -115,16 +114,18 @@ func (k Keeper) GetAllAssets(ctx sdk.Context) []types.Asset {
 
 func (k Keeper) GetPlansByCreator(ctx sdk.Context, creator sdk.AccAddress) []types.LegacyPlan {
 	store := ctx.KVStore(k.storeKey)
-	prefix := fmt.Sprintf("%s%s/", PlanByCreatorPrefix, creator.String())
-	iterator := storetypes.KVStorePrefixIterator(store, []byte(prefix))
+	prefix := []byte(fmt.Sprintf("%s%s/", PlanByCreatorPrefix, creator.String()))
+	iterator := storetypes.KVStorePrefixIterator(store, prefix)
 	defer iterator.Close()
 
 	var plans []types.LegacyPlan
 	for ; iterator.Valid(); iterator.Next() {
-		// Extract planID from key
-		key := string(iterator.Key())
-		var planID uint64
-		fmt.Sscanf(key, prefix+"%d", &planID)
+		// Extract planID from key suffix (last 8 bytes are big-endian uint64)
+		key := iterator.Key()
+		if len(key) < 8 {
+			continue
+		}
+		planID := binary.BigEndian.Uint64(key[len(key)-8:])
 		if plan, found := k.GetPlan(ctx, planID); found {
 			plans = append(plans, plan)
 		}
@@ -169,15 +170,18 @@ func (k Keeper) GetAsset(ctx sdk.Context, assetID uint64) (types.Asset, bool) {
 
 func (k Keeper) GetAssetsByPlan(ctx sdk.Context, planID uint64) []types.Asset {
 	store := ctx.KVStore(k.storeKey)
-	prefix := fmt.Sprintf("%s%d/", AssetByPlanPrefix, planID)
-	iterator := storetypes.KVStorePrefixIterator(store, []byte(prefix))
+	prefix := []byte(fmt.Sprintf("%s%d/", AssetByPlanPrefix, planID))
+	iterator := storetypes.KVStorePrefixIterator(store, prefix)
 	defer iterator.Close()
 
 	var assets []types.Asset
 	for ; iterator.Valid(); iterator.Next() {
-		key := string(iterator.Key())
-		var assetID uint64
-		fmt.Sscanf(key, prefix+"%d", &assetID)
+		// Extract assetID from key suffix (last 8 bytes are big-endian uint64)
+		key := iterator.Key()
+		if len(key) < 8 {
+			continue
+		}
+		assetID := binary.BigEndian.Uint64(key[len(key)-8:])
 		if asset, found := k.GetAsset(ctx, assetID); found {
 			assets = append(assets, asset)
 		}
@@ -329,14 +333,8 @@ func PlanByCreatorKey(creator sdk.AccAddress, planID uint64) []byte {
 }
 
 func AssetByPlanKey(planID, assetID uint64) []byte {
-	planBz := make([]byte, 8)
-	binary.BigEndian.PutUint64(planBz, planID)
 	assetBz := make([]byte, 8)
 	binary.BigEndian.PutUint64(assetBz, assetID)
 	key := append([]byte(fmt.Sprintf("%s%d/", AssetByPlanPrefix, planID)), assetBz...)
-	_ = planBz
 	return key
 }
-
-// store import for KVStorePrefixIterator
-var _ = store.KVStorePrefixIterator

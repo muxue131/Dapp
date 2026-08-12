@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/inherit-dapp/chain/backend/api"
 	"github.com/inherit-dapp/chain/backend/config"
@@ -49,16 +51,26 @@ func main() {
 	server := api.NewServer(cfg, database)
 
 	// Graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		sig := <-sigCh
-		log.Printf("Received signal %v, shutting down...", sig)
-		os.Exit(0)
+		if err := server.Start(); err != nil {
+			log.Fatalf("Failed to start server: %v", err)
+		}
 	}()
 
 	log.Printf("Starting API server on %s:%d", cfg.ServerHost, cfg.ServerPort)
-	if err := server.Start(); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+
+	sig := <-sigCh
+	log.Printf("Received signal %v, shutting down...", sig)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
 	}
+
+	log.Println("Server stopped gracefully")
 }

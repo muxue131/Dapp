@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '../hooks/useWallet';
 import { getPlansByCreator } from '../services/api';
 import { PlanCard } from './PlanCard';
@@ -11,27 +11,25 @@ export const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'triggered' | 'claimed'>('all');
 
-  const loadPlans = async () => {
+  const loadPlans = useCallback(async () => {
     if (!wallet.connected) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const response = await getPlansByCreator(wallet.address);
-      if (response.plans) {
-        setPlans(response.plans);
-      }
+      const data = await getPlansByCreator(wallet.address);
+      setPlans(data);
     } catch (err: any) {
       setError(err.message || '加载计划失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [wallet.connected, wallet.address]);
 
   useEffect(() => {
     loadPlans();
-  }, [wallet.connected, wallet.address]);
+  }, [loadPlans]);
 
   const filteredPlans = filter === 'all'
     ? plans

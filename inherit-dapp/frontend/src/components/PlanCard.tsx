@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { LegacyPlan, Asset } from '../types';
 import { useWallet } from '../hooks/useWallet';
 import { blockchainService } from '../services/blockchain';
@@ -26,23 +26,21 @@ export const PlanCard: React.FC<Props> = ({ plan, onRefresh }) => {
   const timeRemaining = triggerDate.getTime() - now.getTime();
   const daysRemaining = Math.max(0, Math.ceil(timeRemaining / (1000 * 60 * 60 * 24)));
 
-  useEffect(() => {
-    loadAssets();
-  }, [plan.plan_id]);
-
-  const loadAssets = async () => {
+  const loadAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await getPlanAssets(plan.plan_id);
-      if (response.assets) {
-        setAssets(response.assets);
-      }
+      const data = await getPlanAssets(plan.plan_id);
+      setAssets(data);
     } catch (err) {
       console.error('Failed to load assets:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [plan.plan_id]);
+
+  useEffect(() => {
+    loadAssets();
+  }, [loadAssets]);
 
   const handleHeartbeat = async () => {
     if (!wallet.connected) return;

@@ -94,11 +94,18 @@ func (s *ShamirSecretSharing) Split(secret []byte, n, k int) ([]Share, error) {
 		coeffs[0] = secretByte
 
 		for i := 1; i < k; i++ {
-			r, err := rand.Int(rand.Reader, big.NewInt(256))
-			if err != nil {
-				return nil, fmt.Errorf("failed to generate random coefficient: %w", err)
+			for {
+				r, err := rand.Int(rand.Reader, big.NewInt(256))
+				if err != nil {
+					return nil, fmt.Errorf("failed to generate random coefficient: %w", err)
+				}
+				coeffs[i] = byte(r.Int64())
+				// Ensure the leading coefficient (highest degree) is non-zero
+				// so the polynomial has degree exactly k-1
+				if i != k-1 || coeffs[i] != 0 {
+					break
+				}
 			}
-			coeffs[i] = byte(r.Int64())
 		}
 
 		for i := 0; i < n; i++ {

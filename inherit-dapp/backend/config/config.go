@@ -60,7 +60,7 @@ func LoadConfig() *Config {
 		IPFSAPIEndpoint: getEnv("IPFS_API_ENDPOINT", "http://localhost:5001/api/v0"),
 
 		HeartbeatCheckInterval: time.Duration(getEnvInt("HEARTBEAT_CHECK_INTERVAL", 60)) * time.Second,
-		MonitorEnabled:         getEnv("MONITOR_ENABLED", "true") == "true",
+		MonitorEnabled:         getEnvBool("MONITOR_ENABLED", true),
 
 		JWTSecret: getEnv("JWT_SECRET", "change-me-in-production"),
 	}
@@ -87,6 +87,15 @@ func getEnvInt(key string, defaultValue int) int {
 	if value, exists := os.LookupEnv(key); exists {
 		if intVal, err := strconv.Atoi(value); err == nil {
 			return intVal
+		}
+	}
+	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if value, exists := os.LookupEnv(key); exists {
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			return boolVal
 		}
 	}
 	return defaultValue

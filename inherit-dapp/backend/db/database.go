@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -48,6 +47,15 @@ type WitnessRecord struct {
 	PlanID         uint64    `json:"plan_id"`
 	WitnessAddress string    `json:"witness_address"`
 	AddedAt        time.Time `json:"added_at"`
+}
+
+// HeartbeatLogRecord represents a heartbeat log entry
+type HeartbeatLogRecord struct {
+	ID            int64     `json:"id"`
+	PlanID        uint64    `json:"plan_id"`
+	SenderAddress string    `json:"sender_address"`
+	TxHash        string    `json:"tx_hash"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 // NewDatabase creates a new database connection
@@ -175,6 +183,9 @@ func (db *Database) GetPlansByCreator(ctx context.Context, creatorAddress string
 		}
 		plans = append(plans, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return plans, nil
 }
 
@@ -208,6 +219,9 @@ func (db *Database) GetExpiredPlans(ctx context.Context) ([]PlanRecord, error) {
 		}
 		plans = append(plans, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return plans, nil
 }
 
@@ -240,6 +254,9 @@ func (db *Database) GetAssetsByPlan(ctx context.Context, planID uint64) ([]Asset
 		}
 		assets = append(assets, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return assets, nil
 }
 
@@ -251,7 +268,7 @@ func (db *Database) LogHeartbeat(ctx context.Context, planID uint64, senderAddre
 	return err
 }
 
-func (db *Database) GetHeartbeatLogs(ctx context.Context, planID uint64) ([]map[string]interface{}, error) {
+func (db *Database) GetHeartbeatLogs(ctx context.Context, planID uint64) ([]HeartbeatLogRecord, error) {
 	query := `SELECT id, plan_id, sender_address, tx_hash, timestamp FROM heartbeat_logs WHERE plan_id = $1 ORDER BY timestamp DESC`
 	rows, err := db.conn.QueryContext(ctx, query, planID)
 	if err != nil {
@@ -259,18 +276,16 @@ func (db *Database) GetHeartbeatLogs(ctx context.Context, planID uint64) ([]map[
 	}
 	defer rows.Close()
 
-	var logs []map[string]interface{}
+	var logs []HeartbeatLogRecord
 	for rows.Next() {
-		var id int64
-		var pID uint64
-		var sender, txHash string
-		var ts time.Time
-		if err := rows.Scan(&id, &pID, &sender, &txHash, &ts); err != nil {
+		var l HeartbeatLogRecord
+		if err := rows.Scan(&l.ID, &l.PlanID, &l.SenderAddress, &l.TxHash, &l.Timestamp); err != nil {
 			return nil, err
 		}
-		logs = append(logs, map[string]interface{}{
-			"id": id, "plan_id": pID, "sender": sender, "tx_hash": txHash, "timestamp": ts,
-		})
+		logs = append(logs, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return logs, nil
 }

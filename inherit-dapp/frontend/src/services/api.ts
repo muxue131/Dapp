@@ -6,7 +6,6 @@ import type {
   AddAssetRequest,
   HeartbeatRequest,
   ClaimRequest,
-  ApiResponse,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -19,42 +18,51 @@ const apiClient = axios.create({
   },
 });
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error.response?.data?.error || error.message || 'Unknown error';
+    console.error(`API Error [${error.config?.method?.toUpperCase()} ${error.config?.url}]:`, message);
+    return Promise.reject(new Error(message));
+  }
+);
+
 // === Plan API ===
 
-export async function createPlan(data: CreatePlanRequest): Promise<ApiResponse<LegacyPlan>> {
+export async function createPlan(data: CreatePlanRequest): Promise<LegacyPlan> {
   const response = await apiClient.post('/plans', data);
-  return response.data;
+  return response.data.plan;
 }
 
-export async function getPlan(planId: number): Promise<ApiResponse<LegacyPlan>> {
+export async function getPlan(planId: number): Promise<LegacyPlan> {
   const response = await apiClient.get(`/plans/${planId}`);
-  return response.data;
+  return response.data.plan;
 }
 
-export async function listPlans(creator?: string): Promise<ApiResponse<LegacyPlan[]>> {
+export async function listPlans(creator?: string): Promise<LegacyPlan[]> {
   const params = creator ? { creator } : {};
   const response = await apiClient.get('/plans', { params });
-  return response.data;
+  return response.data.plans;
 }
 
-export async function getPlanAssets(planId: number): Promise<ApiResponse<Asset[]>> {
+export async function getPlanAssets(planId: number): Promise<Asset[]> {
   const response = await apiClient.get(`/plans/${planId}/assets`);
-  return response.data;
+  return response.data.assets;
 }
 
-export async function getPlansByCreator(address: string): Promise<ApiResponse<LegacyPlan[]>> {
+export async function getPlansByCreator(address: string): Promise<LegacyPlan[]> {
   const response = await apiClient.get(`/creators/${address}/plans`);
-  return response.data;
+  return response.data.plans;
 }
 
 // === Asset API ===
 
-export async function addAsset(data: AddAssetRequest): Promise<ApiResponse<Asset>> {
+export async function addAsset(data: AddAssetRequest): Promise<Asset> {
   const response = await apiClient.post('/assets', data);
-  return response.data;
+  return response.data.asset;
 }
 
-export async function getAsset(assetId: number): Promise<ApiResponse<Asset>> {
+export async function getAsset(assetId: number): Promise<Asset> {
   const response = await apiClient.get(`/assets/${assetId}`);
   return response.data;
 }
@@ -64,14 +72,14 @@ export async function getAsset(assetId: number): Promise<ApiResponse<Asset>> {
 export async function sendHeartbeat(
   planId: number,
   data: HeartbeatRequest
-): Promise<ApiResponse<{ message: string; trigger_time: string }>> {
+): Promise<{ message: string; trigger_time: string }> {
   const response = await apiClient.post(`/plans/${planId}/heartbeat`, data);
   return response.data;
 }
 
-export async function getHeartbeatLogs(planId: number): Promise<ApiResponse<any[]>> {
+export async function getHeartbeatLogs(planId: number): Promise<any[]> {
   const response = await apiClient.get(`/plans/${planId}/heartbeat-logs`);
-  return response.data;
+  return response.data.logs;
 }
 
 // === Claim API ===
@@ -79,19 +87,19 @@ export async function getHeartbeatLogs(planId: number): Promise<ApiResponse<any[
 export async function claimInheritance(
   planId: number,
   data: ClaimRequest
-): Promise<ApiResponse<{ message: string }>> {
+): Promise<{ message: string }> {
   const response = await apiClient.post(`/plans/${planId}/claim`, data);
   return response.data;
 }
 
 // === Status API ===
 
-export async function getStatus(): Promise<ApiResponse<any>> {
+export async function getStatus(): Promise<any> {
   const response = await apiClient.get('/status');
   return response.data;
 }
 
-export async function getHealth(): Promise<ApiResponse<any>> {
-  const response = await apiClient.get('/health');
+export async function getHealth(): Promise<any> {
+  const response = await apiClient.get('/health', { baseURL: '' });
   return response.data;
 }

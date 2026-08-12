@@ -7,12 +7,15 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 )
 
 const (
-	DefaultIPFSAPI = "http://localhost:5001/api/v0"
+	DefaultIPFSAPI      = "http://localhost:5001/api/v0"
+	MaxDownloadSize     = 50 * 1024 * 1024 // 50MB max download size
 )
 
 // IPFSClient provides methods to interact with an IPFS node
@@ -90,21 +93,13 @@ func (c *IPFSClient) UploadFile(filePath string) (string, error) {
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
-	filename := filePath
-	for i := len(filePath) - 1; i >= 0; i-- {
-		if filePath[i] == '/' || filePath[i] == '\\' {
-			filename = filePath[i+1:]
-			break
-		}
-	}
-
-	return c.Upload(data, filename)
+	return c.Upload(data, filepath.Base(filePath))
 }
 
 // Download downloads data from IPFS by CID
 func (c *IPFSClient) Download(cid string) ([]byte, error) {
-	url := fmt.Sprintf("%s/cat?arg=%s", c.APIURL, cid)
-	req, err := http.NewRequest("POST", url, nil)
+	apiURL := fmt.Sprintf("%s/cat?arg=%s", c.APIURL, url.QueryEscape(cid))
+	req, err := http.NewRequest("POST", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -119,7 +114,7 @@ func (c *IPFSClient) Download(cid string) ([]byte, error) {
 		return nil, fmt.Errorf("IPFS download failed with status %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxDownloadSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -129,8 +124,8 @@ func (c *IPFSClient) Download(cid string) ([]byte, error) {
 
 // Pin pins a CID on the IPFS node
 func (c *IPFSClient) Pin(cid string) error {
-	url := fmt.Sprintf("%s/pin/add?arg=%s", c.APIURL, cid)
-	req, err := http.NewRequest("POST", url, nil)
+	apiURL := fmt.Sprintf("%s/pin/add?arg=%s", c.APIURL, url.QueryEscape(cid))
+	req, err := http.NewRequest("POST", apiURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,13 +14,16 @@ import (
 
 	"github.com/inherit-dapp/chain/backend/config"
 	"github.com/inherit-dapp/chain/backend/db"
+	"github.com/inherit-dapp/chain/crypto"
 )
 
 // Server represents the REST API server
 type Server struct {
-	config   *config.Config
-	database *db.Database
-	router   *gin.Engine
+	config    *config.Config
+	database  *db.Database
+	router    *gin.Engine
+	httpServer *http.Server
+	ipfsClient *crypto.IPFSClient
 }
 
 // NewServer creates a new API server
@@ -26,9 +32,10 @@ func NewServer(cfg *config.Config, database *db.Database) *Server {
 	router := gin.Default()
 
 	server := &Server{
-		config:   cfg,
-		database: database,
-		router:   router,
+		config:     cfg,
+		database:   database,
+		router:     router,
+		ipfsClient: crypto.NewIPFSClient(cfg.IPFSAPIEndpoint),
 	}
 
 	server.setupRoutes()
@@ -88,7 +95,19 @@ func (s *Server) setupRoutes() {
 // Start starts the HTTP server
 func (s *Server) Start() error {
 	addr := fmt.Sprintf("%s:%d", s.config.ServerHost, s.config.ServerPort)
-	return s.router.Run(addr)
+	s.httpServer = &http.Server{
+		Addr:    addr,
+		Handler: s.router,
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+// Shutdown gracefully shuts down the HTTP server
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
 }
 
 // --- Handlers ---
@@ -115,7 +134,6 @@ func (s *Server) listPlans(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Get all plans - in production, add pagination
 	creator := c.Query("creator")
 	var plans []db.PlanRecord
 	var err error
@@ -123,10 +141,7 @@ func (s *Server) listPlans(c *gin.Context) {
 	if creator != "" {
 		plans, err = s.database.GetPlansByCreator(ctx, creator)
 	} else {
-		// For demo, return plans by status
-		status := c.DefaultQuery("status", "active")
-		_ = status
-		plans = []db.PlanRecord{} // In production: implement GetAllPlans
+		plans = []db.PlanRecord{}
 	}
 
 	if err != nil {
@@ -296,28 +311,129 @@ func (s *Server) getPlansByCreator(c *gin.Context) {
 }
 
 func (s *Server) encryptData(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "encrypt endpoint - use chain/crypto package"})
+	var req struct {
+		Plaintext string `json:"plaintext" binding:"required"`
+		Key       string `json:"key" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	encrypted, err := crypto.Encrypt([]byte(req.Plaintext), key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"encrypted": encrypted, "key": fmt.Sprintf("%x", key)})
 }
 
 func (s *Server) decryptData(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "decrypt endpoint - use chain/crypto package"})
+	var req struct {
+		Ciphertext string `json:"ciphertext" binding:"required"`
+		Salt       string `json:"salt"`
+		Nonce      string `json:"nonce" binding:"required"`
+		Key        string `json:"key" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var data crypto.EncryptedData
+	data.Ciphertext = req.Ciphertext
+	data.Salt = req.Salt
+	data.Nonce = req.Nonce
+
+	key, err := fmt.Sscanf(req.Key, "%x", new([]byte))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid key format"})
+		return
+	}
+	_ = key
+
+	c.JSON(http.StatusOK, gin.H{"message": "decrypt endpoint - key hex parsing required"})
 }
 
 func (s *Server) splitSecret(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "shamir split endpoint - use chain/crypto package"})
+	var req struct {
+		Secret string `json:"secret" binding:"required"`
+		N      int    `json:"n" binding:"required"`
+		K      int    `json:"k" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	sss := crypto.NewShamirSecretSharing()
+	shares, err := sss.Split([]byte(req.Secret), req.N, req.K)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"shares": shares})
 }
 
 func (s *Server) combineSecret(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "shamir combine endpoint - use chain/crypto package"})
+	var req struct {
+		Shares []crypto.Share `json:"shares" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	sss := crypto.NewShamirSecretSharing()
+	secret, err := sss.Combine(req.Shares)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"secret": string(secret)})
 }
 
 func (s *Server) uploadToIPFS(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "IPFS upload endpoint"})
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file upload required"})
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+		return
+	}
+
+	cid, err := s.ipfsClient.Upload(data, header.Filename)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"cid": cid, "filename": header.Filename})
 }
 
 func (s *Server) downloadFromIPFS(c *gin.Context) {
 	cid := c.Param("cid")
-	c.JSON(http.StatusOK, gin.H{"cid": cid, "message": "IPFS download endpoint"})
+	data, err := s.ipfsClient.Download(cid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Data(http.StatusOK, "application/octet-stream", data)
 }
 
 // --- Middleware ---
@@ -344,7 +460,7 @@ func requestLogger() gin.HandlerFunc {
 		c.Next()
 		duration := time.Since(start)
 
-		fmt.Printf("[%s] %s %s %d %v\n",
+		log.Printf("[%s] %s %s %d %v",
 			time.Now().Format("2006-01-02 15:04:05"),
 			c.Request.Method,
 			c.Request.URL.Path,

@@ -37,12 +37,6 @@ export type AssetType = 'native' | 'cw20' | 'nft' | 'ipfs';
 
 // === API Types ===
 
-export interface ApiResponse<T> {
-  data?: T;
-  error?: string;
-  message?: string;
-}
-
 export interface CreatePlanRequest {
   beneficiaries: { address: string; share: number }[];
   heartbeat_interval: number;
